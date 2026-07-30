@@ -96,8 +96,29 @@ ${DOMAIN} {
 }
 EOF
 
-log "pulling image…"; retry docker compose pull
-log "starting…";      docker compose up -d
+log "pulling image…"
+if ! docker compose pull 2>/tmp/bm-pull.err; then
+  cat /tmp/bm-pull.err >&2 || true
+  if grep -qiE 'unauthorized|denied|manifest unknown|not found' /tmp/bm-pull.err; then
+    cat >&2 <<MSG
+
+──────────────────────────────────────────────────────────────────────────────
+✗ Can't pull ${IMAGE} — it's PRIVATE (or not built yet).
+
+  ONE-TIME FIX — make the GHCR package public, then re-run this same command:
+
+    1) open:  https://github.com/users/jdportugal/packages/container/contentmachine/settings
+    2) Danger Zone → Change visibility → Public → confirm
+
+  If that page 404s, the image was never built — check the build at:
+    https://github.com/jdportugal/ContentMachine/actions  (workflow: "Publish image")
+──────────────────────────────────────────────────────────────────────────────
+MSG
+    exit 1
+  fi
+  log "transient pull error — retrying…"; retry docker compose pull
+fi
+log "starting…"; docker compose up -d
 log "done"
 
 cat <<EOF

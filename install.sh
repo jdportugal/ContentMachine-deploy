@@ -50,13 +50,18 @@ WT_TOKEN="$(grep -E '^WATCHTOWER_TOKEN=' .env 2>/dev/null | cut -d= -f2- || true
 
 # Keep any keys the operator already added.
 [ -f .env ] || cat > .env <<'EOF'
-# Offline 'fake' driver by default (no keys needed). For real generation, add
-# your keys below then run:  docker compose up -d
+# Real monitoring + news aggregation via yt-dlp (built into the image; YouTube
+# needs no keys). This enables the "Refresh data" / "Aggregate now" buttons.
+MONITORING_DRIVER=ytdlp
+
+# Clip/post generation stays offline ('fake') until you add keys. For real
+# generation, set CLIPS_DRIVER=api and fill the keys, then: docker compose up -d
 # CLIPS_DRIVER=api
 # OPENAI_API_KEY=
 # ELEVENLABS_API_KEY=
 # ANTHROPIC_API_KEY=
 # KIE_API_KEY=
+# APIFY_TOKEN=          # needed for Instagram / TikTok / LinkedIn monitoring
 EOF
 # Persist the Watchtower token so re-runs reuse it.
 grep -q '^WATCHTOWER_TOKEN=' .env || printf 'WATCHTOWER_TOKEN=%s\n' "${WT_TOKEN}" >> .env

@@ -39,7 +39,14 @@ done
 DOMAIN="${DOMAIN:-${IP}.sslip.io}"    # <ip>.sslip.io resolves to <ip>; Caddy gets a cert
 log "deploying at https://${DOMAIN}"
 
+# Token shared between the app and the Watchtower sidecar, so the in-app
+# "Check for updates" button can trigger a pull + recreate. Generated once.
+
 mkdir -p "${DIR}"; cd "${DIR}"
+
+# Reuse an existing token across re-runs (persisted in .env below).
+WT_TOKEN="$(grep -E '^WATCHTOWER_TOKEN=' .env 2>/dev/null | cut -d= -f2- || true)"
+[ -n "${WT_TOKEN}" ] || WT_TOKEN="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 
 # Keep any keys the operator already added.
 [ -f .env ] || cat > .env <<'EOF'
@@ -51,6 +58,8 @@ mkdir -p "${DIR}"; cd "${DIR}"
 # ANTHROPIC_API_KEY=
 # KIE_API_KEY=
 EOF
+# Persist the Watchtower token so re-runs reuse it.
+grep -q '^WATCHTOWER_TOKEN=' .env || printf 'WATCHTOWER_TOKEN=%s\n' "${WT_TOKEN}" >> .env
 
 cat > docker-compose.yml <<EOF
 services:
@@ -60,14 +69,30 @@ services:
     environment:
       APP_URL: https://${DOMAIN}
       ASSET_URL: https://${DOMAIN}
+      WATCHTOWER_URL: http://watchtower:8080
+      WATCHTOWER_TOKEN: ${WT_TOKEN}
     env_file:
       - .env
+    labels:
+      # let Watchtower update THIS container on demand
+      com.centurylinklabs.watchtower.enable: "true"
     volumes:
       - storage:/app/storage
       - vault:/app/vault
       - db:/app/database
     expose:
       - "${APP_PORT}"
+
+  # Performs the actual pull + recreate when the app's "Check for updates" button
+  # fires. On-demand only (no auto-polling); only touches the labelled app.
+  watchtower:
+    image: containrrr/watchtower
+    restart: unless-stopped
+    command: --http-api-update --cleanup --label-enable
+    environment:
+      WATCHTOWER_HTTP_API_TOKEN: ${WT_TOKEN}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   caddy:
     image: caddy:2

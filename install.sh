@@ -44,40 +44,24 @@ log "deploying at https://${DOMAIN}"
 
 mkdir -p "${DIR}"; cd "${DIR}"
 
-# Reuse an existing token across re-runs (persisted in .env below).
-WT_TOKEN="$(grep -E '^WATCHTOWER_TOKEN=' .env 2>/dev/null | cut -d= -f2- || true)"
-[ -n "${WT_TOKEN}" ] || WT_TOKEN="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-
-# Keep any keys the operator already added.
-[ -f .env ] || cat > .env <<'EOF'
-# Real monitoring + news aggregation via yt-dlp (built into the image; YouTube
-# needs no keys). This enables the "Refresh data" / "Aggregate now" buttons.
-MONITORING_DRIVER=ytdlp
-
-# Clip/post generation stays offline ('fake') until you add keys. For real
-# generation, set CLIPS_DRIVER=api and fill the keys, then: docker compose up -d
-# CLIPS_DRIVER=api
-# OPENAI_API_KEY=
-# ELEVENLABS_API_KEY=
-# ANTHROPIC_API_KEY=
-# KIE_API_KEY=
-# APIFY_TOKEN=          # needed for Instagram / TikTok / LinkedIn monitoring
-EOF
-# Persist the Watchtower token so re-runs reuse it.
-grep -q '^WATCHTOWER_TOKEN=' .env || printf 'WATCHTOWER_TOKEN=%s\n' "${WT_TOKEN}" >> .env
+# Token the app uses to trigger Watchtower (regenerated each install; baked into
+# the compose below). No .env — all config is either automatic here or set in the
+# app's Settings page (API keys, channels, models…). Drop a stale one if present.
+WT_TOKEN="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+rm -f .env 2>/dev/null || true
 
 cat > docker-compose.yml <<EOF
 services:
   app:
     image: ${IMAGE}
     restart: unless-stopped
+    # Everything the container needs is here or automatic (APP_KEY is generated on
+    # the storage volume; drivers auto-enable in production; keys live in Settings).
     environment:
       APP_URL: https://${DOMAIN}
       ASSET_URL: https://${DOMAIN}
       WATCHTOWER_URL: http://watchtower:8080
       WATCHTOWER_TOKEN: ${WT_TOKEN}
-    env_file:
-      - .env
     labels:
       # let Watchtower update THIS container on demand
       com.centurylinklabs.watchtower.enable: "true"
@@ -158,5 +142,5 @@ cat <<EOF
 
   logs:    cd ${DIR} && docker compose logs -f
   update:  cd ${DIR} && docker compose pull && docker compose up -d
-  keys:    edit ${DIR}/.env then 'docker compose up -d'
+  keys:    open the app → Settings → API Keys (no .env, no SSH)
 EOF
